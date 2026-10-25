@@ -119,7 +119,7 @@ export default defineNuxtConfig({
 | `gzipLevel` | `6` | Gzip level, used once per render. |
 | `statusHeader` | `'x-cache'` | Header that reports `HIT`, `STALE` or `MISS`. `false` omits it. |
 | `invalidateOnBuild` | `true` | Tie entries to the build. After a deploy that keeps the storage, pages render again before they are sent, and payloads are kept per build (see [Payloads](#payloads)). |
-| `cleanup` | `false` | Enable Nitro's scheduled pruning task. `true` runs daily at 04:00 and removes expired entries (see [Server helpers](#server-helpers)). An object can override `schedule` (cron) and set `olderThan` (seconds) to remove by age instead. |
+| `cleanup` | `false` | Enable Nitro's scheduled pruning task. `true` runs daily at 04:00 and removes expired entries (see [Server helpers](#server-helpers)). An object can override `schedule` (cron) and set `olderThan` (seconds) to remove by age instead, where `0` removes every entry on each run. An invalid `olderThan` logs a warning and falls back to expiry. |
 
 ## Server helpers
 
@@ -139,6 +139,9 @@ await pruneCompressedCache()
 
 // or delete entries rendered more than `olderThan` seconds ago, whatever their rule
 await pruneCompressedCache({ olderThan: 7 * 24 * 60 * 60 })
+
+// or delete every entry
+await pruneCompressedCache({ olderThan: 0 })
 ```
 
 Without `staleMaxAge`, a stale copy is served until a visit replaces it, so pruning only removes pages nobody

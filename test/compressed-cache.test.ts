@@ -521,5 +521,9 @@ describe('compressed cache', () => {
     expect((await get('/blog/old')).headers.get('x-cache')).toBe('MISS')
     expect((await get('/blog/recent')).headers.get('x-cache')).toBe('HIT')
     expect(await pruneCompressedCache({ olderThan: 30 })).toBe(0)
+
+    // `0` removes every entry, even one rendered this instant
+    expect(await pruneCompressedCache({ olderThan: 0 })).toBe(2)
+    expect(items.size).toBe(0)
   })
 })

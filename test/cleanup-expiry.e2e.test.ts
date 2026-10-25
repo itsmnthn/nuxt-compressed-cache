@@ -8,7 +8,7 @@ describe('scheduled cleanup by route rule expiry in a built app', async () => {
     // Nitro skips scheduling when Vitest's TEST flag is set.
     env: { TEST: '' },
     nuxtConfig: {
-      routeRules: { '/blog/**': { compressedCache: { maxAge: 1 } } },
+      routeRules: { '/blog/**': { compressedCache: { maxAge: 3 } } },
       compressedCache: {
         prefix: 'cleanup-expiry-test',
         cleanup: { schedule: '* * * * * *' },
@@ -16,12 +16,15 @@ describe('scheduled cleanup by route rule expiry in a built app', async () => {
     },
   })
 
-  it('removes entries once their route rule maxAge passes', async () => {
+  it('keeps fresh entries and removes them once their route rule maxAge passes', async () => {
     expect((await fetch('/blog/cleanup-expiring')).headers.get('x-cache')).toBe('MISS')
+
+    // the task runs every second, a fresh copy survives those runs
+    await new Promise(resolve => setTimeout(resolve, 1500))
     expect((await fetch('/blog/cleanup-expiring')).headers.get('x-cache')).toBe('HIT')
 
     // no requests while waiting, a request for a stale copy would re-render it
-    await new Promise(resolve => setTimeout(resolve, 2500))
+    await new Promise(resolve => setTimeout(resolve, 3000))
 
     // a stale copy that was not pruned would be served as STALE
     expect((await fetch('/blog/cleanup-expiring')).headers.get('x-cache')).toBe('MISS')

@@ -51,7 +51,8 @@ export default defineNuxtModule<CompressedCacheModuleOptions>({
       ...options,
       storage: mount,
       version: invalidateOnBuild ? nuxt.options.buildId : undefined,
-      cleanup: cleanup ? { olderThan } : false,
+      // runtime config turns an `undefined` value into `''`, so an unset `olderThan` is left out
+      cleanup: cleanup ? (olderThan === undefined ? {} : { olderThan }) : false,
     } as typeof nuxt.options.runtimeConfig.compressedCache
 
     if (cleanup) {

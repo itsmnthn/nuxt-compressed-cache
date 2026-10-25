@@ -41,7 +41,7 @@ describe('cleanup configuration', () => {
     expect(options.nitro.experimental?.tasks).toBe(true)
     expect(options.nitro.tasks?.['compressed-cache:prune']?.handler).toContain('/runtime/tasks/prune')
     expect(options.nitro.scheduledTasks?.['0 4 * * *']).toEqual(['compressed-cache:prune'])
-    expect((options.runtimeConfig.compressedCache as { cleanup?: unknown }).cleanup).toEqual({})
+    expect((options.runtimeConfig.compressedCache as { cleanup?: unknown }).cleanup).toStrictEqual({})
   })
 
   it('keeps the default schedule with a custom short retention', async () => {
@@ -69,6 +69,6 @@ describe('cleanup configuration', () => {
       '* * * * *': ['existing:task', 'compressed-cache:prune'],
       '0 * * * *': 'another:task',
     })
-    expect((options.runtimeConfig.compressedCache as { cleanup?: unknown }).cleanup).toEqual({})
+    expect((options.runtimeConfig.compressedCache as { cleanup?: unknown }).cleanup).toStrictEqual({})
   })
 })
