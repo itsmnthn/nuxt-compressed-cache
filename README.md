@@ -119,6 +119,7 @@ export default defineNuxtConfig({
 | `gzipLevel` | `6` | Gzip level, used once per render. |
 | `statusHeader` | `'x-cache'` | Header that reports `HIT`, `STALE` or `MISS`. `false` omits it. |
 | `invalidateOnBuild` | `true` | Tie entries to the build. After a deploy that keeps the storage, pages render again before they are sent, and payloads are kept per build (see [Payloads](#payloads)). |
+| `cleanup` | `false` | Enable Nitro's scheduled pruning task. `true` runs daily at 04:00 and removes expired entries (see [Server helpers](#server-helpers)). An object can override `schedule` (cron) and set `olderThan` (seconds) to remove by age instead. |
 
 ## Server helpers
 
@@ -132,12 +133,40 @@ await expireCompressedCache({ pathPrefix: '/blog/' })
 // delete entries: the next request renders fresh
 await removeCompressedCache({ path: '/blog/my-post' })
 
-// delete entries rendered more than `olderThan` seconds ago
-await pruneCompressedCache({ olderThan: 40 * 24 * 60 * 60 })
+// delete expired entries: past `maxAge` (plus `staleMaxAge` when set) of their page's current route rule,
+// and entries whose page no longer has a `compressedCache` rule
+await pruneCompressedCache()
+
+// or delete entries rendered more than `olderThan` seconds ago, whatever their rule
+await pruneCompressedCache({ olderThan: 7 * 24 * 60 * 60 })
 ```
 
-Storage drivers without a TTL (such as `fs`) never drop entries on their own. Run `pruneCompressedCache` from a 
-scheduled task:
+Without `staleMaxAge`, a stale copy is served until a visit replaces it, so pruning only removes pages nobody
+has visited since they expired. Their next visitor waits for a render instead of getting the stale copy.
+
+Storage drivers without a TTL (such as `fs`) never drop entries on their own. Enable the built-in cleanup
+task with `compressedCache: { cleanup: true }`, which runs `pruneCompressedCache()` daily at 04:00, or
+customize it:
+
+```ts
+// nuxt.config.ts
+export default defineNuxtConfig({
+  compressedCache: {
+    cleanup: {
+      schedule: '0 */6 * * *',
+      // remove by age instead of expiry
+      olderThan: 7 * 24 * 60 * 60,
+    },
+  },
+})
+```
+
+Cleanup is disabled by default. When enabled, the module enables Nitro tasks, registers
+`compressed-cache:prune` and adds its schedule alongside existing tasks. It uses the configured storage and
+prefix, removing each pruned entry's metadata and compressed copies. Schedules use the server's timezone.
+
+The built-in task only prunes. For more control, such as clearing the cache when the disk is almost full,
+leave `cleanup` off and call `pruneCompressedCache` from your own task:
 
 ```ts
 // server/tasks/compressed-cache/prune.ts
@@ -146,7 +175,7 @@ import { defineTask } from 'nitro/task'
 export default defineTask({
   meta: { name: 'compressed-cache:prune' },
   async run() {
-    return { result: await pruneCompressedCache({ olderThan: 40 * 24 * 60 * 60 }) }
+    return { result: await pruneCompressedCache() }
   },
 })
 ```

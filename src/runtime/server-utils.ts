@@ -1,8 +1,14 @@
-import type { CompressedCacheConfig } from './compressed-cache'
+import type { CompressedCacheConfig, CompressedCacheRule } from './compressed-cache'
+import { getRouteRules } from 'nitro/app'
 import { useRuntimeConfig } from 'nitro/runtime-config'
 import { expireCompressedCache as expire, pruneCompressedCache as prune, removeCompressedCache as remove } from './compressed-cache'
 
 type Target = { path: string } | { pathPrefix: string }
+
+/** The `compressedCache` route rule of a page pathname, from the app's current route rules. */
+export function compressedCacheRule({ pathname }: { pathname: string }): CompressedCacheRule | undefined {
+  return getRouteRules('GET', pathname).routeRules.compressedCache
+}
 
 function location() {
   const { storage, prefix } = useRuntimeConfig().compressedCache as CompressedCacheConfig
@@ -30,11 +36,14 @@ export function removeCompressedCache(target: Target): Promise<number> {
 }
 
 /**
- * Deletes entries rendered more than `olderThan` seconds ago, on any storage driver.
- * Call it from a scheduled task, for example `pruneCompressedCache({ olderThan: 40 * 24 * 60 * 60 })`.
+ * Deletes entries past the `maxAge` (plus `staleMaxAge` when set) of their page's current route rule,
+ * and entries whose page no longer has a rule, on any storage driver.
+ * Pass `olderThan` (seconds) to delete by render age instead, for example `{ olderThan: 7 * 24 * 60 * 60 }`.
  *
  * @returns How many entries were removed.
  */
-export function pruneCompressedCache({ olderThan }: { olderThan: number }): Promise<number> {
-  return prune({ ...location(), olderThan })
+export function pruneCompressedCache({ olderThan }: { olderThan?: number } = {}): Promise<number> {
+  return olderThan === undefined
+    ? prune({ ...location(), rule: compressedCacheRule })
+    : prune({ ...location(), olderThan })
 }

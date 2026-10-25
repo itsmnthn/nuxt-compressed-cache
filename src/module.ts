@@ -9,6 +9,13 @@ export interface CompressedCacheModuleOptions extends Omit<CompressedCacheConfig
   storage?: string | { driver: string, [option: string]: unknown }
   /** Treat entries from a previous build as stale, so they re-render after a deploy that keeps the storage. */
   invalidateOnBuild?: boolean
+  /** Enable scheduled pruning, daily at 04:00 by default, of entries past their route rule's `maxAge` and `staleMaxAge`. */
+  cleanup?: boolean | {
+    /** Cron expression for Nitro's task runner. */
+    schedule?: string
+    /** Remove entries rendered more than this many seconds ago, instead of when they expire. */
+    olderThan?: number
+  }
 }
 
 /**
@@ -29,9 +36,11 @@ export default defineNuxtModule<CompressedCacheModuleOptions>({
     gzipLevel: 6,
     statusHeader: 'x-cache',
     invalidateOnBuild: true,
+    cleanup: false,
   },
-  setup({ storage, invalidateOnBuild, ...options }, nuxt) {
+  setup({ storage, invalidateOnBuild, cleanup, ...options }, nuxt) {
     const resolver = createResolver(import.meta.url)
+    const { schedule = '0 4 * * *', olderThan } = typeof cleanup === 'object' ? cleanup : {}
 
     const mount = typeof storage === 'object' ? 'compressed-cache' : storage ?? 'cache'
     if (typeof storage === 'object') {
@@ -42,7 +51,19 @@ export default defineNuxtModule<CompressedCacheModuleOptions>({
       ...options,
       storage: mount,
       version: invalidateOnBuild ? nuxt.options.buildId : undefined,
+      cleanup: cleanup ? { olderThan } : false,
     } as typeof nuxt.options.runtimeConfig.compressedCache
+
+    if (cleanup) {
+      const nitro = nuxt.options.nitro
+      nitro.experimental ||= {}
+      nitro.experimental.tasks = true
+      nitro.tasks ||= {}
+      nitro.tasks['compressed-cache:prune'] = { handler: resolver.resolve('./runtime/tasks/prune') }
+      nitro.scheduledTasks ||= {}
+      const scheduled = nitro.scheduledTasks[schedule]
+      nitro.scheduledTasks[schedule] = [...new Set([...(Array.isArray(scheduled) ? scheduled : scheduled ? [scheduled] : []), 'compressed-cache:prune'])]
+    }
 
     // Nuxt extracts `_payload.json` for client navigation only on routes it sees as cached (`isr` or `cache`),
     // `cache` would also turn on Nitro's own cache, while server presets ignore `isr`

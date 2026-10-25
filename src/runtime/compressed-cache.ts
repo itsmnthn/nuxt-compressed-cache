@@ -189,6 +189,12 @@ function normalizeQuery({ search, allowQuery = [], payload, version }: {
   return { query: new URLSearchParams([...allowed, [BUILD_PARAM, build]]).toString(), extra, currentBuild: build === version }
 }
 
+/** The page pathname a request or stored path belongs to, a payload belongs to its page. */
+function pagePathname(path: string): string {
+  const pathname = path.split('?')[0]!
+  return pathname.endsWith(PAYLOAD_SUFFIX) ? pathname.slice(0, -PAYLOAD_SUFFIX.length) || '/' : pathname
+}
+
 /** The payload path that belongs to a page path. */
 function payloadPath(path: string): string {
   return path.replace(/\/$/, '') + PAYLOAD_SUFFIX
@@ -436,24 +442,28 @@ export async function removeCompressedCache(target: CompressedCacheLocation & { 
 }
 
 /**
- * Deletes entries rendered more than `olderThan` seconds ago, judged by each entry's own render time,
- * so it works on every storage driver, including ones without file times (memory, redis, KV).
- * Meant for a scheduled Nitro task.
+ * Deletes entries past the `maxAge` (plus `staleMaxAge` when set) of their page's current route rule,
+ * and entries whose page no longer has a rule, or, with `olderThan`, entries rendered more than that many
+ * seconds ago. Judged by each entry's own render time, so it works on every storage driver,
+ * including ones without file times (memory, redis, KV). Meant for a scheduled Nitro task.
  *
  * @returns How many entries were removed.
  */
-export async function pruneCompressedCache({ olderThan, storage = DEFAULT_STORAGE, prefix = DEFAULT_PREFIX }: CompressedCacheLocation & {
-  /** Age in seconds. */
-  olderThan: number
-}): Promise<number> {
+export async function pruneCompressedCache({ storage = DEFAULT_STORAGE, prefix = DEFAULT_PREFIX, ...by }: CompressedCacheLocation & (
+  | { /** Age in seconds. */ olderThan: number }
+  | { rule: CompressedCacheOptions['rule'] }
+)): Promise<number> {
   const store = useStorage(storage)
-  const renderedBefore = Date.now() - olderThan * 1000
+  const now = Date.now()
   const metaKeys = (await store.getKeys(prefix)).filter(key => key.endsWith(':meta'))
   let removed = 0
 
   for (const metaKey of metaKeys) {
     const meta = await store.getItem<CompressedCacheMeta>(metaKey)
-    if (meta && meta.createdAt >= renderedBefore) {
+    // without `staleMaxAge` a stale copy is served until replaced, so an unvisited one goes once `maxAge` passes
+    const rule = meta && 'rule' in by ? by.rule({ pathname: pagePathname(meta.path) }) : undefined
+    const lifetime = 'olderThan' in by ? by.olderThan : rule ? rule.maxAge + (rule.staleMaxAge ?? 0) : 0
+    if (meta && meta.createdAt + lifetime * 1000 > now) {
       continue
     }
 
@@ -482,7 +492,7 @@ export function defineCompressedCache(options: CompressedCacheOptions) {
     const { pathname, search } = event.url
     const payload = pathname.endsWith(PAYLOAD_SUFFIX)
     // Nuxt serves a payload for its page's route rule, an exact rule like `/` does not match `/_payload.json`
-    const rule = options.rule({ pathname: payload ? pathname.slice(0, -PAYLOAD_SUFFIX.length) || '/' : pathname })
+    const rule = options.rule({ pathname: pagePathname(pathname) })
     if (!rule || (rule.bypassCookies?.length && hasCookie({ cookieHeader: event.req.headers.get('cookie'), names: rule.bypassCookies }))) {
       return next()
     }

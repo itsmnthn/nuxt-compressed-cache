@@ -21,10 +21,16 @@ const storage = {
   removeItem: async (key: string) => void items.delete(key),
 }
 const app = { current: undefined as H3App | undefined }
+/** Background re-renders, awaited after each test so none writes into the next one's storage. */
+const background: Promise<Response>[] = []
 
 vi.mock('nitro/storage', () => ({ useStorage: () => storage }))
 vi.mock('nitro/app', () => ({
-  serverFetch: (url: URL, init: RequestInit) => app.current!.fetch(new Request(url, init)),
+  serverFetch: (url: URL, init: RequestInit) => {
+    const response = Promise.resolve(app.current!.fetch(new Request(url, init)))
+    background.push(response)
+    return response
+  },
 }))
 
 const PAGE = `<!DOCTYPE html><html><body>${'I am gonna get squashed '.repeat(500)}</body></html>`
@@ -87,7 +93,8 @@ describe('compressed cache', () => {
 
   beforeEach(() => createApp())
 
-  afterEach(() => {
+  afterEach(async () => {
+    await Promise.allSettled(background.splice(0))
     vi.restoreAllMocks()
   })
 
@@ -454,6 +461,51 @@ describe('compressed cache', () => {
     expect(await removeCompressedCache({ pathPrefix: '/blog/' })).toBe(2)
     expect((await get('/blog/second')).headers.get('x-cache')).toBe('MISS')
     expect(await removeCompressedCache({ path: '/blog/missing-page' })).toBe(0)
+  })
+
+  it('prunes entries past their maxAge and staleMaxAge by default', async () => {
+    const { pruneCompressedCache } = await import('#src/runtime/compressed-cache')
+    await createApp({ rule: { maxAge: 60, staleMaxAge: 30 } })
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now - 100_000)
+    await get('/blog/expired')
+    vi.spyOn(Date, 'now').mockReturnValue(now - 80_000)
+    await get('/blog/still-stale')
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+
+    expect(await pruneCompressedCache({ rule: () => ({ maxAge: 60, staleMaxAge: 30 }) })).toBe(1)
+    expect((await get('/blog/still-stale')).headers.get('x-cache')).toBe('STALE')
+    expect((await get('/blog/expired')).headers.get('x-cache')).toBe('MISS')
+  })
+
+  it('prunes entries past their maxAge by default when stale copies are kept until replaced', async () => {
+    const { pruneCompressedCache } = await import('#src/runtime/compressed-cache')
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now - 61_000)
+    await get('/blog/unvisited')
+    vi.spyOn(Date, 'now').mockReturnValue(now - 59_000)
+    await get('/blog/fresh')
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+
+    expect(await pruneCompressedCache({ rule: () => ({ maxAge: 60 }) })).toBe(1)
+    expect((await get('/blog/fresh')).headers.get('x-cache')).toBe('HIT')
+  })
+
+  it('prunes by the current rule of each page, and entries whose page lost its rule', async () => {
+    const { pruneCompressedCache } = await import('#src/runtime/compressed-cache')
+    await createApp({ version: 'build-1' })
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now - 30_000)
+    await get('/blog/shortened')
+    await get('/blog/shortened/_payload.json?_b=build-1')
+    await get('/blog/kept')
+    await get('/blog/uncached')
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+
+    const rules: Record<string, CompressedCacheRule> = { '/blog/shortened': { maxAge: 10 }, '/blog/kept': { maxAge: 60 } }
+    expect(await pruneCompressedCache({ rule: ({ pathname }) => rules[pathname] })).toBe(3)
+    expect((await get('/blog/kept')).headers.get('x-cache')).toBe('HIT')
+    expect([...items.keys()].filter(key => key.endsWith(':meta'))).toHaveLength(1)
   })
 
   it('prunes entries rendered before the given age, by their own render time', async () => {
