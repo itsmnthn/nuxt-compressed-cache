@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.1.2
+
+[compare changes](https://github.com/itsmnthn/nuxt-compressed-cache/compare/v0.1.1...v0.1.2)
+
+### 🩹 Fixes
+
+- **cleanup:** Prune by expiry when olderThan is unset, accept 0 to remove all entries ([258130a](https://github.com/itsmnthn/nuxt-compressed-cache/commit/258130a))
+
+### ❤️ Contributors
+
+- Manthankumar Satani <satanimanthan@gmail.com>
+
 ## v0.1.1
 
 
