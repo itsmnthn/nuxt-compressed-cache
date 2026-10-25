@@ -1,0 +1,9 @@
+minimumReleaseAgeExcludePrune: true
+trustPolicy: no-downgrade
+shellEmulator: true
+
+packages:
+  - playground
+
+allowBuilds:
+  esbuild: true

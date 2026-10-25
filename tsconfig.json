@@ -1,0 +1,10 @@
+{
+  "extends": "./.nuxt/tsconfig.node.json",
+  "compilerOptions": {
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "types": ["node"]
+  },
+  "include": ["src", "test", ".nuxt/nuxt.node.d.ts", "playground/.nuxt/types/compressed-cache.d.ts"],
+  "exclude": ["test/fixtures"]
+}

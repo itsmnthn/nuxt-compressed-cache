@@ -1,0 +1,74 @@
+{
+  "name": "nuxt-compressed-cache",
+  "type": "module",
+  "version": "0.1.0",
+  "packageManager": "pnpm@12.15.0",
+  "description": "Serve Nuxt route rules from pre-compressed (brotli/gzip) cached copies, with stale-while-revalidate",
+  "author": "Manthankumar Satani",
+  "license": "MIT",
+  "keywords": [
+    "nuxt",
+    "nuxt-module",
+    "nitro",
+    "cache",
+    "brotli",
+    "gzip",
+    "swr"
+  ],
+  "imports": {
+    "#src/*": "./src/*.ts"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/types.d.mts",
+      "import": "./dist/module.mjs"
+    }
+  },
+  "main": "./dist/module.mjs",
+  "typesVersions": {
+    "*": {
+      ".": [
+        "./dist/types.d.mts"
+      ]
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prepack": "nuxt-module-build build",
+    "dev": "nuxt dev playground",
+    "dev:build": "nuxt build playground",
+    "dev:prepare": "nuxt-module-build build --stub && nuxt-module-build prepare && nuxt prepare playground",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "test:types": "tsc --noEmit",
+    "release": "pnpm lint && pnpm test && pnpm test:types && pnpm prepack && changelogen --release && pnpm publish && git push --follow-tags"
+  },
+  "peerDependencies": {
+    "nuxt": ">=5.0.0-0"
+  },
+  "devDependencies": {
+    "@antfu/eslint-config": "9.5.1",
+    "@nuxt/cli": "3.37.0",
+    "@nuxt/module-builder": "1.0.3",
+    "@nuxt/test-utils": "4.3.4",
+    "@types/node": "24.19.2",
+    "changelogen": "0.6.2",
+    "eslint": "10.13.0",
+    "nitro": "3.0.260903-beta",
+    "nuxt": "npm:nuxt-nightly@5.0.0-2610211357-d296167",
+    "typescript": "6.0.2",
+    "vitest": "5.0.5",
+    "vue": "3.5.44"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.15.0",
+      "onFail": "download"
+    }
+  }
+}
