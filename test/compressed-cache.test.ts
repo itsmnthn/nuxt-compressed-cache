@@ -41,8 +41,9 @@ describe('compressed cache', () => {
   let status: number
   let cacheControl: string | undefined
 
-  async function createApp({ encodings, rule = { maxAge: 60 }, version, keep = false }: {
+  async function createApp({ encodings, rule = { maxAge: 60 }, version, stripQuery, keep = false }: {
     encodings?: ('br' | 'gzip')[]
+    stripQuery?: string[]
     rule?: CompressedCacheRule
     version?: string
     /** Keeps stored entries, like a new build reusing persistent storage. */
@@ -60,7 +61,7 @@ describe('compressed cache', () => {
 
     const { defineCompressedCache } = await import('#src/runtime/compressed-cache')
     app.current = new H3({ silent: true })
-    app.current.use(defineCompressedCache({ rule: ({ pathname }) => pathname.startsWith('/blog/') ? rule : undefined, encodings, version }))
+    app.current.use(defineCompressedCache({ rule: ({ pathname }) => pathname.startsWith('/blog/') ? rule : undefined, encodings, version, stripQuery }))
     app.current.get('/blog/:slug', async (event) => {
       renders++
       await new Promise(resolve => setTimeout(resolve, 5))
@@ -208,12 +209,12 @@ describe('compressed cache', () => {
     expect(items.size).toBe(0)
   })
 
-  it('serves unlisted query params from the path entry but never stores them', async () => {
-    await get('/blog/tracked?utm=x')
+  it('serves stripped query params from the path entry but never stores them', async () => {
+    await get('/blog/tracked?utm_source=x')
     expect(items.size).toBe(0)
 
     await get('/blog/tracked')
-    const variant = await get('/blog/tracked?utm=y')
+    const variant = await get('/blog/tracked?utm_source=y')
     expect(variant.headers.get('x-cache')).toBe('HIT')
     expect(renders).toBe(2)
   })
@@ -412,15 +413,73 @@ describe('compressed cache', () => {
     expect(renders).toBe(2)
   })
 
-  it('keys allowed query params, in any order, and ignores the rest', async () => {
+  it('keys allowed query params, in any order, and strips the rest', async () => {
     await createApp({ rule: { maxAge: 60, allowQuery: ['page', 'sort'] } })
 
     expect((await get('/blog/list?page=2&sort=new')).headers.get('x-cache')).toBe('MISS')
     expect((await get('/blog/list?sort=new&page=2')).headers.get('x-cache')).toBe('HIT')
     expect((await get('/blog/list?page=3')).headers.get('x-cache')).toBe('MISS')
-    expect((await get('/blog/list?page=3&utm=x')).headers.get('x-cache')).toBe('HIT')
-    expect((await get('/blog/list?page=4&utm=x')).headers.get('x-cache')).toBeNull()
+    expect((await get('/blog/list?page=3&utm_source=x')).headers.get('x-cache')).toBe('HIT')
+    expect((await get('/blog/list?page=4&utm_source=x')).headers.get('x-cache')).toBeNull()
     expect(renders).toBe(3)
+  })
+
+  it('skips the cache for unknown query params even when an entry exists', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await createApp({ rule: { maxAge: 60, allowQuery: ['page'] } })
+    await get('/blog/list')
+    await get('/blog/list?page=2')
+
+    expect((await get('/blog/list?q=corporate')).headers.get('x-cache')).toBeNull()
+    expect((await get('/blog/list?page=2&q=corporate')).headers.get('x-cache')).toBeNull()
+    expect((await get('/blog/list?q=corporate')).headers.get('x-cache')).toBeNull()
+    expect((await get('/blog/list')).headers.get('x-cache')).toBe('HIT')
+    expect(renders).toBe(5)
+    // only `/blog/list` and `?page=2`: each a meta and two compressed copies
+    expect(items.size).toBe(6)
+  })
+
+  it('serves stripped query params from an existing entry without storing a miss', async () => {
+    await createApp({ rule: { maxAge: 60, stripQuery: ['tab'] } })
+    await get('/blog/list')
+
+    expect((await get('/blog/list?tab=1')).headers.get('x-cache')).toBe('HIT')
+    expect((await get('/blog/new?tab=1')).headers.get('x-cache')).toBeNull()
+    expect((await get('/blog/new?tab=1')).headers.get('x-cache')).toBeNull()
+    expect(renders).toBe(3)
+    expect(items.size).toBe(3)
+  })
+
+  it('strips the default tracking params, matching `utm_*` by prefix', async () => {
+    const info = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await createApp()
+    await get('/blog/list')
+
+    expect((await get('/blog/list?utm_source=x&utm_campaign=y&fbclid=1&gclid=2&ref=z')).headers.get('x-cache')).toBe('HIT')
+    expect((await get('/blog/list?utm=x')).headers.get('x-cache')).toBeNull()
+    expect(info).toHaveBeenCalledTimes(1)
+  })
+
+  it('combines the module and rule stripQuery lists', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await createApp({ stripQuery: ['tab'], rule: { maxAge: 60, stripQuery: ['view'] } })
+    await get('/blog/list')
+
+    expect((await get('/blog/list?tab=1&view=grid')).headers.get('x-cache')).toBe('HIT')
+    // a list passed here replaces the built-in defaults, the module merges a user list into them
+    expect((await get('/blog/list?utm_source=x')).headers.get('x-cache')).toBeNull()
+  })
+
+  it('logs each unknown query param name once', async () => {
+    const info = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await createApp()
+
+    await get('/blog/a?q=1')
+    await get('/blog/b?q=2')
+    await get('/blog/a?q=1&sort=new')
+    expect(info).toHaveBeenCalledTimes(2)
+    expect(info.mock.calls[0]![0]).toContain('/blog/a skipped the cache: query param "q" isn\'t configured')
+    expect(info.mock.calls[1]![0]).toContain('query param "sort"')
   })
 
   it('skips the cache for requests with a bypass cookie', async () => {

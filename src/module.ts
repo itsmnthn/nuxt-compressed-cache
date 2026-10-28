@@ -35,6 +35,7 @@ export default defineNuxtModule<CompressedCacheModuleOptions>({
     brotliQuality: 6,
     gzipLevel: 6,
     statusHeader: 'x-cache',
+    stripQuery: ['utm_*', 'fbclid', 'gclid', 'ref'],
     invalidateOnBuild: true,
     cleanup: false,
   },

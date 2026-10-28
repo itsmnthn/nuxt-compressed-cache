@@ -94,6 +94,7 @@ export default defineNuxtConfig({
         maxAge: 3600,
         staleMaxAge: 86400,
         allowQuery: ['page'],
+        stripQuery: ['tab'],
         bypassCookies: ['session'],
       },
     },
@@ -105,8 +106,19 @@ export default defineNuxtConfig({
 | --- | --- |
 | `maxAge` | Seconds a copy is fresh. |
 | `staleMaxAge` | Seconds a copy may still be served after `maxAge` while it re-renders in the background. Unset serves stale copies until they are replaced. `0` always waits for a fresh render. When set, entries also get a storage TTL of `maxAge + staleMaxAge`, on drivers that support one. |
-| `allowQuery` | Query params that get their own entry. Other params are ignored for lookups, and a request carrying them is never stored. |
+| `allowQuery` | Query params that get their own entry, for example `page`. |
+| `stripQuery` | Query params that don't change the page, added to the module's `stripQuery`. They are dropped from the key, so a request with one gets an existing entry, but a miss isn't stored. A trailing `*` matches by prefix. |
 | `bypassCookies` | Requests carrying any of these cookies skip the cache, for example a session cookie. |
+
+### Query params
+
+A request with a query param that is in neither `allowQuery` nor `stripQuery` skips the cache: no lookup and no
+store, so a search like `?q=` always renders fresh. The first request with each such param name logs which option to
+add it to. Stripped params are never stored because the rendered page can echo the query, in links or a canonical URL.
+
+> [!IMPORTANT]
+> Migrating to 0.2.0: requests with unlisted query params used to get the stored copy, now they skip the cache.
+> List params that select content in `allowQuery`, and ones that don't change the page in `stripQuery`.
 
 ## Module options
 
@@ -117,6 +129,7 @@ export default defineNuxtConfig({
 | `encodings` | `['br', 'gzip']` | Copies to store. Storing only `br` drops the gzip copy, and clients that don't accept brotli are then converted on the fly. Clients that accept no compression always get a copy decompressed on the fly. |
 | `brotliQuality` | `6` | Brotli quality, used once per render. |
 | `gzipLevel` | `6` | Gzip level, used once per render. |
+| `stripQuery` | `['utm_*', 'fbclid', 'gclid', 'ref']` | Query params every rule drops from the key (see [Query params](#query-params)). A list you set is added to these. |
 | `statusHeader` | `'x-cache'` | Header that reports `HIT`, `STALE` or `MISS`. `false` omits it. |
 | `invalidateOnBuild` | `true` | Tie entries to the build. After a deploy that keeps the storage, pages render again before they are sent, and payloads are kept per build (see [Payloads](#payloads)). |
 | `cleanup` | `false` | Enable Nitro's scheduled pruning task. `true` runs daily at 04:00 and removes expired entries (see [Server helpers](#server-helpers)). An object can override `schedule` (cron) and set `olderThan` (seconds) to remove by age instead, where `0` removes every entry on each run. An invalid `olderThan` logs a warning and falls back to expiry. |
