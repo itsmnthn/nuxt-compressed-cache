@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.1.3
+
+[compare changes](https://github.com/itsmnthn/nuxt-compressed-cache/compare/v0.1.2...v0.1.3)
+
+### 🚀 Enhancements
+
+- Enhance query parameter handling in compressed cache ([a8a7e17](https://github.com/itsmnthn/nuxt-compressed-cache/commit/a8a7e17))
+
+### ❤️ Contributors
+
+- Manthankumar Satani <satanimanthan@gmail.com>
+
 ## v0.1.2
 
 [compare changes](https://github.com/itsmnthn/nuxt-compressed-cache/compare/v0.1.1...v0.1.2)
