@@ -117,7 +117,7 @@ store, so a search like `?q=` always renders fresh. The first request with each 
 add it to. Stripped params are never stored because the rendered page can echo the query, in links or a canonical URL.
 
 > [!IMPORTANT]
-> Migrating to 0.2.0: requests with unlisted query params used to get the stored copy, now they skip the cache.
+> Migrating to 0.1.3: requests with unlisted query params used to get the stored copy, now they skip the cache.
 > List params that select content in `allowQuery`, and ones that don't change the page in `stripQuery`.
 
 ## Module options
