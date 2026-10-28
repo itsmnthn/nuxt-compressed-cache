@@ -24,8 +24,10 @@ export interface CompressedCacheRule {
    * When set, entries also get a storage TTL of `maxAge + staleMaxAge`.
    */
   staleMaxAge?: number
-  /** Query params that get their own entry, any other param is ignored for lookups and never stored. */
+  /** Query params that get their own entry. A request with a param in neither this nor `stripQuery` skips the cache. */
   allowQuery?: string[]
+  /** Query params that do not change the page, added to the module's `stripQuery`. A trailing `*` matches by prefix. */
+  stripQuery?: string[]
   /** Requests carrying any of these cookies skip the cache, for example a session cookie. */
   bypassCookies?: string[]
 }
@@ -41,6 +43,11 @@ export interface CompressedCacheConfig {
   storage?: string
   /** Key prefix inside the storage mount. */
   prefix?: string
+  /**
+   * Query params every rule drops from the key, a trailing `*` matches by prefix.
+   * A request with one is served an existing entry but never stored, the page may echo the query.
+   */
+  stripQuery?: string[]
   /**
    * Compressed copies to store. Both serve every client as-is, brotli only halves storage
    * and converts the rare gzip-only request on the fly.
@@ -100,11 +107,16 @@ const REVALIDATE_HEADER = 'x-compressed-cache-revalidate'
 /** Nuxt payloads live next to their page, clients request them with the build id in `_b`. */
 const PAYLOAD_SUFFIX = '/_payload.json'
 const BUILD_PARAM = '_b'
+export const DEFAULT_STRIP_QUERY = ['utm_*', 'fbclid', 'gclid', 'ref']
+/** Caps the unknown query param names logged per process, anyone can send random names. */
+const MAX_LOGGED_QUERY = 100
 /** Per process, so only this server's own background requests can force a re-render. */
 const REVALIDATE_TOKEN = randomUUID()
 
 /** Renders in progress per entry, so concurrent misses render once. */
 const inflight = new Map<string, Promise<StoredPage | undefined>>()
+/** Unknown query param names already logged. */
+const loggedQuery = new Set<string>()
 
 /**
  * Picks the available encoding the client weights highest (`q`, default 1, `*` for unlisted ones),
@@ -164,29 +176,48 @@ function entryKey({ prefix, pathname, query }: { prefix: string, pathname: strin
   return `${pathKey({ prefix, pathname })}:${query ? hash(query) : 'default'}`
 }
 
+/** Whether a query param name is listed, an entry ending in `*` matches by prefix. */
+function matchesQuery({ name, list }: { name: string, list: string[] }): boolean {
+  return list.some(entry => entry.endsWith('*') ? name.startsWith(entry.slice(0, -1)) : entry === name)
+}
+
 /**
- * Keeps only allowed query params, sorted so their order does not split entries.
+ * Keeps only allowed query params, sorted so their order does not split entries, and drops stripped ones.
  * A payload of a versioned app is also keyed by its build, the requested `_b` or the running build.
  *
- * @returns The query that keys the entry, whether the request had other params,
- * and whether it is for the running build, both needed to store it.
+ * @returns The query that keys the entry, the names of params in neither list, whether the request had stripped params,
+ * and whether it is for the running build, the last two needed to store it.
  */
-function normalizeQuery({ search, allowQuery = [], payload, version }: {
+function normalizeQuery({ search, allowQuery = [], stripQuery = [], payload, version }: {
   search: string
   allowQuery?: string[]
+  stripQuery?: string[]
   payload: boolean
   version?: string
-}): { query: string, extra: boolean, currentBuild: boolean } {
+}): { query: string, unknown: string[], stripped: boolean, currentBuild: boolean } {
   const params = [...new URLSearchParams(search)]
   const keyed = payload ? params.filter(([name]) => name !== BUILD_PARAM) : params
   const allowed = keyed.filter(([name]) => allowQuery.includes(name)).sort(([a], [b]) => a.localeCompare(b))
-  const extra = allowed.length !== keyed.length
+  const rest = keyed.filter(([name]) => !allowQuery.includes(name)).map(([name]) => name)
+  const unknown = [...new Set(rest.filter(name => !matchesQuery({ name, list: stripQuery })))]
+  const stripped = rest.length > 0 && unknown.length < rest.length
   if (!payload || !version) {
-    return { query: new URLSearchParams(allowed).toString(), extra, currentBuild: true }
+    return { query: new URLSearchParams(allowed).toString(), unknown, stripped, currentBuild: true }
   }
 
   const build = new URLSearchParams(search).get(BUILD_PARAM) ?? version
-  return { query: new URLSearchParams([...allowed, [BUILD_PARAM, build]]).toString(), extra, currentBuild: build === version }
+  return { query: new URLSearchParams([...allowed, [BUILD_PARAM, build]]).toString(), unknown, stripped, currentBuild: build === version }
+}
+
+/** Tells once per param name, up to a cap, why requests with it skip the cache. */
+function logUnknownQuery({ pathname, names }: { pathname: string, names: string[] }): void {
+  for (const name of names) {
+    if (loggedQuery.has(name) || loggedQuery.size >= MAX_LOGGED_QUERY) {
+      continue
+    }
+    loggedQuery.add(name)
+    console.warn(`[compressed-cache] ${pathname} skipped the cache: query param "${name}" isn't configured. Add it to allowQuery to cache a copy per value, or stripQuery if it doesn't change the page.`)
+  }
 }
 
 /** The page pathname a request or stored path belongs to, a payload belongs to its page. */
@@ -497,7 +528,13 @@ export function defineCompressedCache(options: CompressedCacheOptions) {
       return next()
     }
 
-    const { query, extra, currentBuild } = normalizeQuery({ search, allowQuery: rule.allowQuery, payload, version: options.version })
+    const stripQuery = [...(options.stripQuery ?? DEFAULT_STRIP_QUERY), ...(rule.stripQuery ?? [])]
+    const { query, unknown, stripped, currentBuild } = normalizeQuery({ search, allowQuery: rule.allowQuery, stripQuery, payload, version: options.version })
+    // a param in neither list may change the page, so a stored copy is never sent for it
+    if (unknown.length) {
+      logUnknownQuery({ pathname, names: unknown })
+      return next()
+    }
     const key = entryKey({ prefix, pathname, query })
     const path = query ? `${pathname}?${query}` : pathname
 
@@ -533,9 +570,9 @@ export function defineCompressedCache(options: CompressedCacheOptions) {
       }
     }
 
-    // params outside `allowQuery` and payloads of another build are served from the entry when it exists,
-    // but never stored, and a HEAD response has no body to store
-    if (extra || !currentBuild || event.req.method === 'HEAD') {
+    // stripped params and payloads of another build are served from the entry when it exists, but never stored,
+    // the render may echo the query (links, canonical), and a HEAD response has no body to store
+    if (stripped || !currentBuild || event.req.method === 'HEAD') {
       return next()
     }
 
