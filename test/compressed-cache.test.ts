@@ -24,7 +24,7 @@ const app = { current: undefined as H3App | undefined }
 /** Background re-renders, awaited after each test so none writes into the next one's storage. */
 const background: Promise<Response>[] = []
 
-vi.mock('nitro/storage', () => ({ useStorage: () => storage }))
+vi.mock('nitro/kv', () => ({ useKV: () => storage }))
 vi.mock('nitro/app', () => ({
   serverFetch: (url: URL, init: RequestInit) => {
     const response = Promise.resolve(app.current!.fetch(new Request(url, init)))

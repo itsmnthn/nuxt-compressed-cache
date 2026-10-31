@@ -1,6 +1,6 @@
 # nuxt-compressed-cache
 
-Serve Nuxt pages from pre-compressed cached copies.
+Serve Nuxt and Nitro pages from pre-compressed cached copies.
 
 Nitro's `swr` cache stores each response as a JSON entry and sends it uncompressed, so every hit parses the
 entry, and the page is compressed again on every hit by whatever sits in front (a proxy or CDN), or goes out
@@ -16,7 +16,8 @@ render instead of once per request.
 - Pages from an older build are rendered again after a deploy
 - Helpers to expire, remove and prune entries
 
-> Requires Nuxt 5 (Nitro 3), deployed as a Node server (VPS, Docker, Coolify…). See [Deployment](#deployment).
+> Requires Nitro `3.0.261029-rc` or newer, either through Nuxt 5 (`5.0.0-2610292241-bc2bef7` or newer) or on its own,
+> deployed as a Node server (VPS, Docker, Coolify…). See [Deployment](#deployment).
 
 ## Why
 
@@ -48,6 +49,10 @@ This is a niche module. Use Nitro's `swr` or `isr` instead, or nothing at all, i
 
 ## Install
 
+There are two entry points with the same options: a Nuxt module, and a Nitro module for an app without Nuxt.
+
+### Nuxt
+
 ```bash
 pnpm add nuxt-compressed-cache
 ```
@@ -68,21 +73,53 @@ through without storing (an error, a cookie, a bypassed request) don't.
 
 The cache does nothing in development or while prerendering.
 
+### Nitro
+
+```bash
+pnpm add nitro unstorage nuxt-compressed-cache
+```
+
+```ts
+// nitro.config.ts
+import { defineConfig } from 'nitro/config'
+import compressedCache from 'nuxt-compressed-cache/nitro'
+
+export default defineConfig({
+  modules: [compressedCache({ cleanup: true })],
+  routeRules: {
+    '/blog/**': { compressedCache: { maxAge: 60 * 60 * 24 } },
+  },
+})
+```
+
+It is a [Nitro module](https://nitro.build/config/features#modules) rather than a plain middleware, because it also has
+to set the runtime config, the KV mount and the cleanup task, and bundle the middleware into your server. Everything
+below applies, except that:
+
+- options are passed to `compressedCache()` instead of a `compressedCache` config key;
+- `unstorage` has to be installed in your app, Nitro no longer includes it;
+- [server helpers](#server-helpers) are imported from `nuxt-compressed-cache/server-utils`;
+- `invalidateOnBuild` uses an id generated for each build, as Nitro has no build id;
+- [payloads](#payloads) don't apply, and the module doesn't add `isr`.
+
 ## Storage
 
-By default, entries go to Nitro's `cache` storage mount. If that mount isn't backed by persistent storage in
+By default, entries go to Nitro's `cache` KV mount. If that mount isn't backed by persistent storage in
 production, entries are lost on every restart. To use a dedicated persistent mount:
 
 ```ts
 export default defineNuxtConfig({
   compressedCache: {
-    // an unstorage driver, mounted as `compressed-cache`
-    storage: { driver: 'fs', base: './.data/compressed-cache' },
+    // same shape as Nitro's `kv` option, the key is the mount name
+    kv: { pages: { driver: 'fs', base: './.data/pages' } },
   },
 })
 ```
 
-You can also pass the name of a mount you configured yourself, for example `storage: 'redis'`.
+A mount here replaces one of the same name in Nitro's `kv` option, so pick another name to keep both. If you pass
+several mounts, set `storage` to the one that holds the entries.
+
+To use a mount you configured yourself in Nitro's `kv` option, pass its name, for example `storage: 'redis'`.
 
 ## Route rule
 
@@ -124,7 +161,8 @@ add it to. Stripped params are never stored because the rendered page can echo t
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `storage` | `'cache'` | Name of a Nitro storage mount, or unstorage driver options mounted as `compressed-cache`. |
+| `storage` | `'cache'` | Name of the Nitro KV mount for entries. Defaults to the only mount in `kv` when you set one. |
+| `kv` | | Mounts to add, same shape as Nitro's `kv` option. The key is the mount name. |
 | `prefix` | `'compressed-cache'` | Key prefix inside the storage mount. |
 | `encodings` | `['br', 'gzip']` | Copies to store. Storing only `br` drops the gzip copy, and clients that don't accept brotli are then converted on the fly. Clients that accept no compression always get a copy decompressed on the fly. |
 | `brotliQuality` | `6` | Brotli quality, used once per render. |
@@ -136,7 +174,8 @@ add it to. Stripped params are never stored because the rendered page can echo t
 
 ## Server helpers
 
-These are auto-imported in server code. A `path` also covers that page's `_payload.json`.
+These are auto-imported in Nuxt server code. In a plain Nitro app, import them from
+`nuxt-compressed-cache/server-utils`. A `path` also covers that page's `_payload.json`.
 
 ```ts
 // mark entries stale: each is served stale while it re-renders (re-rendered first when `staleMaxAge` is 0)
