@@ -1,7 +1,7 @@
 {
   "name": "nuxt-compressed-cache",
   "type": "module",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "packageManager": "pnpm@12.15.0",
   "description": "Serve Nuxt and Nitro route rules from pre-compressed (brotli/gzip) cached copies, with stale-while-revalidate",
   "author": "Manthankumar Satani",
