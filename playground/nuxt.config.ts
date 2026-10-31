@@ -1,3 +1,5 @@
+import { defineNuxtConfig } from 'nuxt/config'
+
 export default defineNuxtConfig({
   modules: ['../src/module'],
   compatibilityDate: '2026-10-01',
@@ -5,6 +7,11 @@ export default defineNuxtConfig({
     '/': { compressedCache: { maxAge: 60 } },
   },
   compressedCache: {
-    storage: { driver: 'fs', base: './.data/compressed-cache' },
+    kv: {
+      'compressed-cache': {
+        driver: 'fs',
+        base: './.data/compressed-cache',
+      },
+    },
   },
 })

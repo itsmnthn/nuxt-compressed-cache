@@ -4,7 +4,7 @@ import { promisify } from 'node:util'
 import { brotliCompress, brotliCompressSync, brotliDecompressSync, constants, gunzipSync, gzip, gzipSync } from 'node:zlib'
 import { serverFetch } from 'nitro/app'
 import { defineMiddleware, toResponse } from 'nitro/h3'
-import { useStorage } from 'nitro/storage'
+import { useKV } from 'nitro/kv'
 
 /**
  * Compressed cache that stores rendered HTML and payloads pre-compressed (brotli and/or gzip) and serves the bytes as-is,
@@ -64,6 +64,12 @@ export interface CompressedCacheConfig {
    * and payloads are kept per build like the `_b` param Nuxt adds to them.
    */
   version?: string
+}
+
+/** The `compressedCache` runtime config, as both entry points write it. */
+export interface CompressedCacheRuntimeConfig extends CompressedCacheConfig {
+  /** `false` when cleanup is off. `olderThan` arrives as a string from an env override. */
+  cleanup: false | { olderThan?: number | string }
 }
 
 /** Where entries live, also what the invalidation helpers need. */
@@ -253,7 +259,7 @@ function matchesEtag({ ifNoneMatch, etag }: { ifNoneMatch: string | null, etag: 
 
 /** Deletes an entry's meta and every compressed copy. */
 async function removeEntry({ storage, entry }: { storage: string, entry: string }): Promise<void> {
-  const store = useStorage(storage)
+  const store = useKV(storage)
   await Promise.all(['meta', ...Object.values(ENCODING_FILE)].map(file => store.removeItem(`${entry}:${file}`)))
 }
 
@@ -283,7 +289,7 @@ function convert({ body, from, to }: { body: Uint8Array, from: Encoding, to: Enc
  * @returns The stored page with only that copy, or `undefined` when missing or partially written.
  */
 async function readPage({ storage, key, encoding }: { storage: string, key: string, encoding: Encoding }): Promise<StoredPage | undefined> {
-  const store = useStorage(storage)
+  const store = useKV(storage)
   const meta = await store.getItem<CompressedCacheMeta>(`${key}:meta`)
   if (!meta) {
     return
@@ -342,7 +348,7 @@ async function renderPage({ event, next, storage, key, path, rule, encodings, co
     size,
   }
 
-  const store = useStorage(storage)
+  const store = useKV(storage)
   const ttl = rule.staleMaxAge === undefined ? undefined : { ttl: rule.maxAge + rule.staleMaxAge }
   // copies first and meta last, so a reader never finds meta pointing at missing files
   try {
@@ -420,7 +426,7 @@ async function findEntries({ storage = DEFAULT_STORAGE, prefix = DEFAULT_PREFIX,
   path?: string
   pathPrefix?: string
 }): Promise<string[]> {
-  const store = useStorage(storage)
+  const store = useKV(storage)
   const bases = path ? [path, payloadPath(path)].map(pathname => pathKey({ prefix, pathname })) : [prefix]
   const metaKeys = (await Promise.all(bases.map(base => store.getKeys(base)))).flat().filter(key => key.endsWith(':meta'))
   const entries: string[] = []
@@ -445,7 +451,7 @@ async function findEntries({ storage = DEFAULT_STORAGE, prefix = DEFAULT_PREFIX,
  * @returns How many entries were expired.
  */
 export async function expireCompressedCache(target: CompressedCacheLocation & { path: string } | CompressedCacheLocation & { pathPrefix: string }): Promise<number> {
-  const store = useStorage(target.storage ?? DEFAULT_STORAGE)
+  const store = useKV(target.storage ?? DEFAULT_STORAGE)
   const entries = await findEntries(target)
 
   for (const entry of entries) {
@@ -484,7 +490,7 @@ export async function pruneCompressedCache({ storage = DEFAULT_STORAGE, prefix =
   | { /** Age in seconds. */ olderThan: number }
   | { rule: CompressedCacheOptions['rule'] }
 )): Promise<number> {
-  const store = useStorage(storage)
+  const store = useKV(storage)
   const now = Date.now()
   const metaKeys = (await store.getKeys(prefix)).filter(key => key.endsWith(':meta'))
   let removed = 0

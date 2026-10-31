@@ -1,6 +1,5 @@
-import type { CompressedCacheConfig } from '../compressed-cache'
-import { useRuntimeConfig } from 'nitro/runtime-config'
 import { defineTask } from 'nitro/task'
+import { useCompressedCacheConfig } from '../config'
 import { pruneCompressedCache } from '../server-utils'
 
 /**
@@ -28,7 +27,7 @@ export function parseOlderThan(value: unknown): number | undefined {
 export default defineTask({
   meta: { name: 'compressed-cache:prune', description: 'Prune expired compressed cache entries' },
   async run() {
-    const { cleanup } = useRuntimeConfig().compressedCache as CompressedCacheConfig & { cleanup: { olderThan?: unknown } }
-    return { result: await pruneCompressedCache({ olderThan: parseOlderThan(cleanup.olderThan) }) }
+    const { cleanup } = useCompressedCacheConfig()
+    return { result: await pruneCompressedCache({ olderThan: parseOlderThan(cleanup ? cleanup.olderThan : undefined) }) }
   },
 })

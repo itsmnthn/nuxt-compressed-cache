@@ -1,3 +1,4 @@
+import { defineNuxtConfig } from 'nuxt/config'
 import CompressedCache from '#src/module'
 
 export default defineNuxtConfig({
@@ -9,6 +10,6 @@ export default defineNuxtConfig({
     '/counted/**': { compressedCache: { maxAge: 60 } },
   },
   compressedCache: {
-    storage: { driver: 'memory' },
+    kv: { 'compressed-cache': { driver: 'memory' } },
   },
 })

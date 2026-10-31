@@ -1,7 +1,7 @@
-import type { CompressedCacheConfig, CompressedCacheRule } from './compressed-cache'
+import type { CompressedCacheRule } from './compressed-cache'
 import { getRouteRules } from 'nitro/app'
-import { useRuntimeConfig } from 'nitro/runtime-config'
 import { expireCompressedCache as expire, pruneCompressedCache as prune, removeCompressedCache as remove } from './compressed-cache'
+import { useCompressedCacheConfig } from './config'
 
 type Target = { path: string } | { pathPrefix: string }
 
@@ -11,7 +11,7 @@ export function compressedCacheRule({ pathname }: { pathname: string }): Compres
 }
 
 function location() {
-  const { storage, prefix } = useRuntimeConfig().compressedCache as CompressedCacheConfig
+  const { storage, prefix } = useCompressedCacheConfig()
   return { storage, prefix }
 }
 
